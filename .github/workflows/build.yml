@@ -19,9 +19,28 @@ env:
   NODE_VERSION: "20"
 
 jobs:
-  build-artifacts:
-    name: Build ${{ matrix.name }}
-    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+  prepare-main-release:
+    name: Prepare rolling release
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move rolling release tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa latest -m "Latest main build" "${GITHUB_SHA}"
+          git push origin refs/tags/latest --force
+
+  rolling-release:
+    name: Release ${{ matrix.name }} (main)
+    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: prepare-main-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -61,11 +80,15 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build Tauri bundles
+      - name: Build and upload rolling release bundles
         uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tagName: latest
+          releaseName: PDF Watermark Latest
+          releaseBody: Automated build from the main branch. This prerelease is updated on every push to main.
+          prerelease: true
           args: ${{ matrix.args }}
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: "[name]-[platform]-[arch]-[bundle]"
