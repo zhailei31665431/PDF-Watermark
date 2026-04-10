@@ -3,22 +3,39 @@ name: Build Desktop Installers
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: desktop-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
+  build-artifacts:
+    name: Build ${{ matrix.name }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - windows-latest
-          - macos-latest
+        include:
+          - name: Windows x64
+            os: windows-latest
+            args: ""
+          - name: macOS Intel
+            os: macos-latest
+            args: "--target x86_64-apple-darwin"
+          - name: macOS Apple Silicon
+            os: macos-latest
+            args: "--target aarch64-apple-darwin"
 
     steps:
       - name: Check out repository
@@ -27,21 +44,84 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust build outputs
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
 
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build Tauri app
-        run: npm run tauri build
-
-      - name: Upload installers
-        uses: actions/upload-artifact@v4
+      - name: Build Tauri bundles
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: tauri-bundle-${{ matrix.os }}
-          path: src-tauri/target/release/bundle/**
-          if-no-files-found: error
+          args: ${{ matrix.args }}
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: "[name]-[platform]-[arch]-[bundle]"
+
+  release:
+    name: Release ${{ matrix.name }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            args: ""
+          - name: macOS Intel
+            os: macos-latest
+            args: "--target x86_64-apple-darwin"
+          - name: macOS Apple Silicon
+            os: macos-latest
+            args: "--target aarch64-apple-darwin"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust build outputs
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and upload release bundles
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: PDF Watermark ${{ github.ref_name }}
+          releaseBody: See the assets below for Windows and macOS installers.
+          generateReleaseNotes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: ${{ matrix.args }}
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: "[name]-[platform]-[arch]-[bundle]"
