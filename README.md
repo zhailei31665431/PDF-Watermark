@@ -60,6 +60,19 @@ Build outputs are uploaded as workflow artifacts from `src-tauri/target/release/
 
 Note: the workflow creates unsigned builds. If you want notarized macOS apps or signed Windows installers, add the required signing certificates and secrets in GitHub Actions later.
 
+## GitHub Actions Build
+
+The repository includes `.github/workflows/build.yml` for building installers on GitHub-hosted runners.
+
+- `windows-latest` builds Windows installers
+- `macos-latest` builds macOS installers
+- You can trigger it manually from the Actions tab
+- Pushing a tag like `v0.1.0` also triggers a build
+
+Build outputs are uploaded as workflow artifacts from `src-tauri/target/release/bundle/`.
+
+Note: the workflow creates unsigned builds. If you want notarized macOS apps or signed Windows installers, add the required signing certificates and secrets in GitHub Actions later.
+
 ## How To Use
 
 1. Click `Choose PDF` to select the source file.
